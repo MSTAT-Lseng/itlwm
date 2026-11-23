@@ -518,13 +518,15 @@ inline LegacyAuth classifyLegacyAuth(const JoinRequest &j) {
     const uint32_t personal = (1u << 1) | (1u << 3) | (1u << 10);
     const uint32_t enterprise = (1u << 0) | (1u << 2) | (1u << 11);
     if (j.upperAuth & ~(personal | enterprise)) return LegacyAuth::Invalid;
-    if ((j.upperAuth & personal) && (j.upperAuth & enterprise)) return LegacyAuth::Invalid;
-    if (j.upperAuth & personal)
-        return j.keyLength == 32 && (j.keyCipher == 6 || j.keyCipher == 7) ?
-            LegacyAuth::Personal : LegacyAuth::Invalid;
-    if (j.upperAuth & enterprise)
-        return (!j.keyLength || (j.keyLength == 32 && (j.keyCipher == 6 || j.keyCipher == 7))) ?
-            LegacyAuth::Enterprise : LegacyAuth::Invalid;
+    // AUTHTYPE_WPA/AUTHTYPE_WPA2 (1<<0, 1<<2) are protocol versions that a PSK
+    // profile also sets on a WPA/WPA2 mixed AP, so on their own they do not
+    // mean this is an 802.1X join. Deciding by the key material keeps a mixed
+    // PSK profile personal instead of reporting a bogus personal/enterprise
+    // conflict that made such joins fail before any auth frame was sent.
+    if (j.keyLength == 32 && (j.keyCipher == 6 || j.keyCipher == 7))
+        return LegacyAuth::Personal;
+    if (!(j.upperAuth & personal) && !j.keyLength)
+        return LegacyAuth::Enterprise;
     return LegacyAuth::Invalid;
 }
 

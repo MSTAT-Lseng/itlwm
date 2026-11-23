@@ -460,9 +460,18 @@ IOReturn AirportItlwmSkywalkInterface::startWCLJoin(AirportWCL::JoinRequest &joi
         if (join.upperAuth & (APPLE80211_AUTHTYPE_WPA2 | APPLE80211_AUTHTYPE_WPA2_PSK |
                               APPLE80211_AUTHTYPE_SHA256_PSK | APPLE80211_AUTHTYPE_SHA256_8021X))
             wpa.i_protos |= IEEE80211_WPA_PROTO_WPA2;
+        // A cached profile can advertise WPA2 while the AP is WPA1-only (no RSN
+        // IE at all: only a vendor WPA IE). Compare against the RSN IE the join
+        // actually carries, and drop WPA2 when only the profile asked for it.
+        if (join.rsnLength < 4 && (join.upperAuth & (APPLE80211_AUTHTYPE_WPA | APPLE80211_AUTHTYPE_WPA_PSK)))
+            wpa.i_protos &= ~IEEE80211_WPA_PROTO_WPA2;
         if (join.upperAuth & (APPLE80211_AUTHTYPE_WPA_PSK | APPLE80211_AUTHTYPE_WPA2_PSK))
             wpa.i_akms |= IEEE80211_WPA_AKM_PSK;
-        if (join.upperAuth & (APPLE80211_AUTHTYPE_WPA | APPLE80211_AUTHTYPE_WPA2))
+        // WPA/WPA2 are protocol versions that a mixed PSK profile also carries.
+        // Adding 8021X for them put AKM 8021X into a PSK join, which made
+        // ieee80211_choose_rsnparams() negotiate 8021X and then fail the
+        // WPA_PROTO check against a PSK-only AP.
+        if (!personal && (join.upperAuth & (APPLE80211_AUTHTYPE_WPA | APPLE80211_AUTHTYPE_WPA2)))
             wpa.i_akms |= IEEE80211_WPA_AKM_8021X;
         if (join.upperAuth & APPLE80211_AUTHTYPE_SHA256_PSK) {
             wpa.i_akms |= IEEE80211_WPA_AKM_SHA256_PSK;
