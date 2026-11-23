@@ -415,8 +415,13 @@ IOReturn AirportItlwmSkywalkInterface::beginWCLJoin(apple80211AssocCandidates *r
 {
     AirportWCL::JoinRequest join;
     if (!AirportWCL::decodeJoin(request, 0x2cc, join)) {
+        XYLog("WCLJOIN decode failed\n");
         return kIOReturnBadArgument;
     }
+    XYLog("WCLJOIN decoded ssid=%u lower=%#x upper=%#x keyLen=%u keyCipher=%u rsnLen=%u bssid=%02x:%02x:%02x:%02x:%02x:%02x\n",
+          join.ssidLength, join.lowerAuth, join.upperAuth, join.keyLength,
+          join.keyCipher, join.rsnLength,
+          join.bssid[0], join.bssid[1], join.bssid[2], join.bssid[3], join.bssid[4], join.bssid[5]);
     return startWCLJoin(join);
 }
 
@@ -427,6 +432,9 @@ IOReturn AirportItlwmSkywalkInterface::startWCLJoin(AirportWCL::JoinRequest &joi
     bool enterprise = auth == AirportWCL::LegacyAuth::Enterprise;
     bool supported = auth != AirportWCL::LegacyAuth::Invalid;
     ieee80211com *ic = fHalService->get80211Controller();
+    XYLog("WCLJOIN start auth=%d personal=%d enterprise=%d supported=%d state=%d flags=%#x macReconfig=%d pending=%d scanPend=%d ifFlags=%#x\n",
+          (int)auth, personal, enterprise, supported, ic->ic_state, ic->ic_flags,
+          ic->ic_wcl_mac_reconfig, joinPending, scanPending, ic->ic_if.if_flags);
     // Applying a private MAC restarts firmware asynchronously. WCL can issue
     // the association before that restart has completed; keep one request
     // until the HAL reports READY rather than making the user retry it.
@@ -440,6 +448,9 @@ IOReturn AirportItlwmSkywalkInterface::startWCLJoin(AirportWCL::JoinRequest &joi
         return kIOReturnSuccess;
     }
     if (!supported || !(ic->ic_if.if_flags & IFF_RUNNING) || joinPending || scanPending) {
+        XYLog("WCLJOIN reject supported=%d running=%d joinPend=%d scanPend=%d -> %s\n",
+              supported, (ic->ic_if.if_flags & IFF_RUNNING) ? 1 : 0, joinPending, scanPending,
+              !supported ? "Unsupported" : "Busy");
         explicit_bzero(&join, sizeof(join));
         return !supported ? kIOReturnUnsupported : kIOReturnBusy;
     }
@@ -486,6 +497,9 @@ IOReturn AirportItlwmSkywalkInterface::startWCLJoin(AirportWCL::JoinRequest &joi
             if (join.rsn[7] == 4) wpa.i_groupcipher = IEEE80211_WPA_CIPHER_CCMP;
         }
         int error = ieee80211_ioctl_setwpaparms(ic, &wpa);
+        XYLog("WCLJOIN parms protos=%u akms=%u groupcipher=%u ciphers=%u err=%d -> ic_protos=%#x ic_akms=%#x\n",
+              wpa.i_protos, wpa.i_akms, wpa.i_groupcipher, wpa.i_ciphers, error,
+              ic->ic_rsnprotos, ic->ic_rsnakms);
         if (error && error != ENETRESET) {
             explicit_bzero(&join, sizeof(join));
             return kIOReturnBadArgument;
@@ -534,7 +548,11 @@ IOReturn AirportItlwmSkywalkInterface::startWCLJoin(AirportWCL::JoinRequest &joi
     bzero(wclBeaconInfo, sizeof(wclBeaconInfo));
     disassocIsVoluntary = false;
     joinTimer->setTimeoutMS(30000);
+    XYLog("WCLJOIN accepted ssidLen=%u bssid=%02x:%02x:%02x:%02x:%02x:%02x state=%d -> SCAN\n",
+          ic->ic_des_esslen, joinBSSID[0], joinBSSID[1], joinBSSID[2],
+          joinBSSID[3], joinBSSID[4], joinBSSID[5], ic->ic_state);
     if (ic->ic_state != IEEE80211_S_SCAN && ic->ic_newstate(ic, IEEE80211_S_SCAN, -1)) {
+        XYLog("WCLJOIN newstate(SCAN) failed\n");
         joinPending = false;
         joinTimer->cancelTimeout();
         ic->ic_wcl_join_requested = false;
@@ -564,6 +582,8 @@ void AirportItlwmSkywalkInterface::resumeWCLJoin()
 
 void AirportItlwmSkywalkInterface::finishWCLJoin(uint16_t status, uint16_t reason, IOReturn driverStatus)
 {
+    XYLog("WCLJOIN finish status=%u reason=%u driverStatus=%#x pending=%d\n",
+          status, reason, driverStatus, joinPending);
     if (!joinPending)
         return;
     AirportWCL::ConnectionEvent event = {};
@@ -783,6 +803,11 @@ void AirportItlwmSkywalkInterface::handleWCLEvent(int code, void *data)
             }
             break;
         case IEEE80211_EVT_STA_ASSOC_DONE:
+            XYLog("WCLJOIN assoc_done status=%u node_rsnprotos=%#x node_rsnakms=%#x node_rsnciphers=%#x node_caps=%#x state=%d\n",
+                  ic->ic_assoc_status, ic->ic_bss ? ic->ic_bss->ni_rsnprotos : 0,
+                  ic->ic_bss ? ic->ic_bss->ni_rsnakms : 0,
+                  ic->ic_bss ? ic->ic_bss->ni_rsnciphers : 0,
+                  ic->ic_bss ? ic->ic_bss->ni_rsncaps : 0, ic->ic_state);
             if (joinPending && !assocNotified) {
                 AirportWCL::AssociationEvent event = {};
                 event.status = ic->ic_assoc_status;

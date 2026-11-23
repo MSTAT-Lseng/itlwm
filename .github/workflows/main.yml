@@ -13,6 +13,58 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
+  # Single-target build used to ship the instrumented WCL join path for
+  # hardware diagnosis. The full matrix below stays the release gate.
+  diagnose:
+    name: Diagnose (${{ matrix.platform }} ${{ matrix.configuration }})
+    runs-on: macos-15-intel
+    strategy:
+      fail-fast: false
+      matrix:
+        platform: [Tahoe]
+        configuration: [Release]
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install MacKernelSDK
+        uses: actions/checkout@v4
+        with:
+          repository: acidanthera/MacKernelSDK
+          ref: 3f750085caa17ec3a7880f11c11bf4f48cd6a164
+          path: MacKernelSDK
+      - name: Build instrumented AirportItlwm
+        env:
+          CONFIGURATION: ${{ matrix.configuration }}
+          PLATFORM: ${{ matrix.platform }}
+        run: |
+          set -euo pipefail
+          mkdir -p logs
+          xcodebuild -project itlwm.xcodeproj -scheme "AirportItlwm-$PLATFORM" \
+            -configuration "$CONFIGURATION" -jobs 3 ARCHS=x86_64 \
+            SYMROOT="$PWD/build/products" OBJROOT="$PWD/build/obj" \
+            CODE_SIGNING_ALLOWED=NO GIT_COMMIT="_$(git rev-parse --short HEAD)" \
+            build > "logs/diagnose-$PLATFORM.log" 2>&1 || { tail -100 "logs/diagnose-$PLATFORM.log"; exit 1; }
+      - name: Package instrumented kext
+        env:
+          CONFIGURATION: ${{ matrix.configuration }}
+          PLATFORM: ${{ matrix.platform }}
+        run: |
+          set -euo pipefail
+          mkdir -p artifacts
+          short_sha=$(git rev-parse --short HEAD)
+          ditto -c -k --keepParent \
+            "$PWD/build/products/$CONFIGURATION/$PLATFORM/AirportItlwm.kext" \
+            "artifacts/AirportItlwm-$PLATFORM-DIAGNOSE-$short_sha.zip"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: AirportItlwm-DIAGNOSE-${{ matrix.platform }}-${{ matrix.configuration }}
+          path: artifacts/AirportItlwm-*-DIAGNOSE-*.zip
+          if-no-files-found: error
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: diagnose-logs-${{ matrix.platform }}-${{ matrix.configuration }}
+          path: logs
+
   build:
     name: ${{ matrix.platform }} (${{ matrix.configuration }})
     runs-on: macos-15-intel
@@ -78,7 +130,9 @@ jobs:
           fetch-depth: 5
       - uses: actions/download-artifact@v4
         with:
-          pattern: AirportItlwm-*
+          # Exclude the instrumented diagnosis builds: they carry WCLJOIN debug
+          # logging and must never reach a published prerelease.
+          pattern: AirportItlwm-{Sequoia,Tahoe}-{Debug,Release}
           path: artifacts
           merge-multiple: true
       - name: Publish alpha artifacts
