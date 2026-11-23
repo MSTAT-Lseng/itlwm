@@ -133,11 +133,21 @@ extern IOCTL_FUNC gGetHandlerTable[];
 extern IOCTL_FUNC gSetHandlerTable[];
 
 class IO80211InterfaceAVCAdvisory;
-
-
+struct apple80211_device_accessory_info;
+struct apple80211_device_orientation;
+struct apple80211_powertable_version_data;
+class IO80211PostOffice;
 class IO80211Controller;
 class CCLogStream;
+class IO80211APIUserClient;
 struct mloAddrArray;
+struct apple80211_feature_flags;
+struct apple80211_platform_config;
+struct apple80211_debug_command;
+struct apple80211_version_data;
+struct apple80211_capability_data;
+struct apple80211_power_data;
+struct apple80211_country_code_data;
 
 class IO80211Controller : public IOEthernetController {
     OSDeclareAbstractStructors(IO80211Controller)
@@ -163,7 +173,7 @@ public:
     virtual IOReturn setPromiscuousMode(bool);
     virtual bool isCommandProhibited(int) = 0;
     virtual bool createWorkQueue();
-private: virtual void _abi_0c60() __asm__("__ZN17IO80211Controller14debugStateInitEv"); public:
+    virtual void debugStateInit();
     virtual IO80211WorkQueue * getWorkQueue() const;
     virtual void requestPacketTx(void*, unsigned int);
     virtual IOCommandGate * getIO80211CommandGate() const;
@@ -172,9 +182,15 @@ private: virtual void _abi_0c60() __asm__("__ZN17IO80211Controller14debugStateIn
     virtual SInt32 monitorModeSetEnabled(bool, unsigned int);
     virtual SInt32 handleCardSpecific(IO80211SkywalkInterface*, unsigned long, void*, bool) = 0;
     virtual UInt32 hardwareOutputQueueDepth();
-    virtual SInt32 performCountryCodeOperation(IO80211CountryCodeOp);
-    virtual void dataLinkLayerAttachComplete();
+private:
+    // Slots 407-408 stay reserved between the queue-depth and feature blocks;
+    // the KDK vtable has enableFeature at 409, not 407.
+    virtual void _RESERVEDFeatureGap0() {}
+    virtual void _RESERVEDFeatureGap1() {}
+public:
     virtual SInt32 enableFeature(IO80211FeatureCode, void*);
+    // Slots 410-417: the command handlers are pure virtual in the KDK; each
+    // slot is zero there and the concrete controller supplies the override.
     virtual IOReturn getDRIVER_VERSION(IO80211SkywalkInterface*, apple80211_version_data*) = 0;
     virtual IOReturn getHARDWARE_VERSION(IO80211SkywalkInterface*, apple80211_version_data*) = 0;
     virtual IOReturn getCARD_CAPABILITIES(IO80211SkywalkInterface*, apple80211_capability_data*) = 0;
@@ -183,7 +199,17 @@ private: virtual void _abi_0c60() __asm__("__ZN17IO80211Controller14debugStateIn
     virtual IOReturn getCOUNTRY_CODE(IO80211SkywalkInterface*, apple80211_country_code_data*) = 0;
     virtual IOReturn setCOUNTRY_CODE(IO80211SkywalkInterface*, apple80211_country_code_data*) = 0;
     virtual IOReturn setGET_DEBUG_INFO(IO80211SkywalkInterface*, apple80211_debug_command*) = 0;
-private: virtual void _abi_0d00() __asm__("__ZN17IO80211Controller18getPLATFORM_CONFIGEP23IO80211SkywalkInterfaceP26apple80211_platform_config"); public:
+public:
+    virtual IOReturn getPLATFORM_CONFIG(IO80211SkywalkInterface*, apple80211_platform_config*);
+private:
+    // Slots 419-423: handlers reserved between the platform-config and
+    // virtual-interface blocks.
+    virtual void _RESERVEDHandlerGap0() {}
+    virtual void _RESERVEDHandlerGap1() {}
+    virtual void _RESERVEDHandlerGap2() {}
+    virtual void _RESERVEDHandlerGap3() {}
+    virtual void _RESERVEDHandlerGap4() {}
+public:
     virtual SInt32 enableVirtualInterface(IO80211VirtualInterface*);
     virtual SInt32 disableVirtualInterface(IO80211VirtualInterface*);
     virtual bool requiresExplicitMBufRelease();
@@ -200,14 +226,14 @@ private: virtual void _abi_0d00() __asm__("__ZN17IO80211Controller18getPLATFORM_
     virtual void * getDriverTextLog();
     virtual UInt32 selfDiagnosticsReport(int, char const*, unsigned int);
     virtual CommonFaultReporter * getFaultReporterFromDriver() = 0;
-private: virtual void _abi_0d88() __asm__("__ZN17IO80211Controller25allocIO80211RecursiveLockEv"); public:
+    virtual void allocIO80211RecursiveLock();
     virtual UInt32 getDataQueueDepth(OSObject*);
     virtual bool wasDynSARInFailSafeMode();
     virtual void updateAdvisoryScoresIfNeed();
     virtual UInt64 getAVCAdvisoryInfo(IO80211InterfaceAVCAdvisory*);
-private: virtual void _abi_0db0() __asm__("__ZN17IO80211Controller26getActionFramePoolCapacityEv"); public:
-private: virtual void _abi_0db8() __asm__("__ZN17IO80211Controller13getPostOfficeEv"); public:
-private: virtual void _abi_0dc0() __asm__("__ZN17IO80211Controller16CreatePostOfficeEv"); public:
+    virtual UInt32 getActionFramePoolCapacity();
+    virtual IO80211PostOffice* getPostOffice();
+    virtual IOReturn CreatePostOffice();
     virtual bool attachInterface(OSObject*, IOService*);
     virtual void detachInterface(OSObject*, bool);
     virtual IO80211VirtualInterface* createVirtualInterface(ether_addr*, unsigned int);
